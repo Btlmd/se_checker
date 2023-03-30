@@ -3,6 +3,9 @@ import re
 import os
 import argparse
 
+from datetime import datetime as dt
+import pytz
+
 def diff_modified_lines(commit):
     total_addition, total_deletion = 0, 0
     for d in commit.diff(all=True):
@@ -13,8 +16,7 @@ def diff_modified_lines(commit):
     return total_addition + total_deletion
 
 
-
-def check_and_pick(repo, commit_regex, merge_regex, branch_regex):
+def check_and_pick(repo, commit_regex, merge_regex, branch_regex, from_dt):
     token, pid = repo
     gl = gitlab.Gitlab("https://gitlab.secoder.net", token)
     proj = gl.projects.get(pid)
@@ -26,6 +28,9 @@ def check_and_pick(repo, commit_regex, merge_regex, branch_regex):
     print("TOTAL commit, merge, branches:", len(commits), len(mrs), len(branches))
 
     for i in commits:
+        if dt.fromisoformat(i.created_at.replace('Z', '+00:00')) < from_dt:
+            continue
+
         if not re.fullmatch(commit_regex, i.title):
             print("Commit Regex Unmatch:", i.id, i.title, i.author_name, i.author_email, i.created_at, sep=" | ")
         
@@ -35,10 +40,19 @@ def check_and_pick(repo, commit_regex, merge_regex, branch_regex):
             print(" > ", i.web_url)
 
     for i in mrs:
+        if i.closed_at is not None:
+            continue
+
+        if dt.fromisoformat(i.created_at.replace('Z', '+00:00')) < from_dt:
+            continue
+
         if not re.fullmatch(merge_regex, i.title):
             print("MR Regex Unmatch:", i.iid, i.title, i.author['name'], i.author['username'], i.created_at, sep=" | ")
 
     for i in branches:
+        if dt.fromisoformat(i.commit['created_at'].replace('Z', '+00:00')) < from_dt:
+            continue
+
         if not re.fullmatch(branch_regex, i.name):
             print("Branch Regex Unmatch:", i.name, i.commit['author_name'], i.commit['author_email'], i.commit['created_at'], sep=" | ")
     print("")
@@ -50,6 +64,8 @@ if __name__ == "__main__":
     parser.add_argument("--branch_regex", help="issue regex")
     args = parser.parse_args()
 
+    from_dt = utc=pytz.UTC.localize(dt(2023, 3, 24, 0, 0, 0))
+
     ident = os.environ.get("GITLAB_TOKEN"), os.environ.get("GITLAB_PID")
 
-    check_and_pick(ident, args.commit_regex, args.merge_regex, args.branch_regex)
+    check_and_pick(ident, args.commit_regex, args.merge_regex, args.branch_regex, from_dt)
